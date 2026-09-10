@@ -7,17 +7,19 @@ on:
 
 permissions:
   contents: read
-  id-token: write
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/alilxxey/openobserve-community-mcp
-  MCP_SERVER_NAME: io.github.alilxxey/openobserve-community-mcp
+  IMAGE_NAME: ghcr.io/svesh87/openobserve-community-mcp
+  MCP_SERVER_NAME: io.github.svesh87/openobserve-community-mcp
+  COVERAGE_THRESHOLD: "80"
 
 jobs:
+  # This fork publishes the image only. Upstream also releases the package to PyPI, which
+  # a fork has no business doing: the package name belongs to upstream, and republishing
+  # it under our own tag would put a different build behind their name.
   publish:
     runs-on: ubuntu-latest
-    environment: pypi
 
     steps:
       - uses: actions/checkout@v4
@@ -44,24 +46,12 @@ jobs:
           fi
 
       - name: Install package
-        run: uv pip install --system -e .
+        run: uv pip install --system -e . coverage
 
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -p 'test_*.py'
-
-      - name: Build distribution
-        run: uv build
-
-      - name: Upload dist artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-dist
-          path: dist/*
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          skip-existing: true
+      - name: Run unit tests with coverage
+        run: |
+          coverage run --source=openobserve_mcp -m unittest discover -s tests -p 'test_*.py'
+          coverage report --fail-under="${COVERAGE_THRESHOLD}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

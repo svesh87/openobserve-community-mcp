@@ -1,20 +1,36 @@
 # OpenObserve MCP
 
-`stdio` MCP server for OpenObserve Community Edition, using only the regular REST API.
+MCP server for OpenObserve Community Edition, using only the regular REST API.
 
 This package is designed for local MCP clients such as Claude and Codex.
 
-<!-- mcp-name: io.github.alilxxey/openobserve-community-mcp -->
+<!-- mcp-name: io.github.svesh87/openobserve-community-mcp -->
 
-[![openobserve-community-mcp MCP server](https://glama.ai/mcp/servers/alilxxey/openobserve-community-mcp/badges/card.svg?cacheSeconds=300)](https://glama.ai/mcp/servers/alilxxey/openobserve-community-mcp)
+## What this fork changes
+
+A fork of [alilxxey/openobserve-community-mcp](https://github.com/alilxxey/openobserve-community-mcp),
+made so the server can live behind a port instead of being started per client. The tools,
+their arguments and everything about talking to OpenObserve are untouched. Three
+differences:
+
+- **the transport is a flag.** `serve --transport stdio` is the default and behaves exactly
+  as upstream; `serve --transport streamable-http --address HOST:PORT` serves HTTP instead.
+- **the HTTP transport is guarded by a bearer token** from `MCP_AUTH_TOKEN`, and the server
+  refuses to start on that transport without one. Whatever reaches the port inherits the
+  OpenObserve credentials the process was given, so an unguarded port is not an option.
+  `/healthz` sits beside `/mcp` and needs no token, so a container healthcheck can use it.
+- **tests cover the transport, the CLI and the HTTP client**, and CI fails below 80%
+  coverage. Upstream publishes the package to PyPI; this fork publishes only the image, to
+  `ghcr.io/svesh87/openobserve-community-mcp`.
+
+Upstream is the place for issues about the tools themselves.
 
 What it is:
 
-- `stdio` only
 - Community Edition only
 - read-only only
 - regular OpenObserve REST API only
-- no native `/mcp` endpoint
+- no native `/mcp` endpoint (that one is Enterprise)
 
 The server can boot without an active OpenObserve configuration so hosted MCP platforms can start it,
 but every tool call still requires a reachable external OpenObserve instance configured via `OO_BASE_URL`
@@ -131,13 +147,46 @@ docker run --rm -i \
   -e OO_TOKEN \
   -e OO_TIMEOUT_SECONDS \
   -e OO_VERIFY_SSL \
-  ghcr.io/alilxxey/openobserve-community-mcp:latest
+  ghcr.io/svesh87/openobserve-community-mcp:latest
 ```
 
 `OO_ORG_ID` is optional when the credentials only have access to one organization.
 Use `OO_USERNAME` and `OO_PASSWORD` for `basic` auth, or `OO_TOKEN` for `bearer` auth.
 The container can start without these values for hosted MCP platforms, but tool calls will fail until
 you configure a real external OpenObserve instance.
+
+## Streamable HTTP
+
+One long-lived server for every session, on a loopback port, behind a bearer token.
+Generate the token per installation (`openssl rand -hex 32`) and keep it out of the
+command line — the server reads it from `MCP_AUTH_TOKEN`, because a flag is visible in the
+process list:
+
+```bash
+docker run -d --name openobserve-mcp -p 127.0.0.1:8821:8821 \
+  -e OO_BASE_URL -e OO_ORG_ID -e OO_AUTH_MODE -e OO_USERNAME -e OO_PASSWORD \
+  -e MCP_AUTH_TOKEN \
+  ghcr.io/svesh87/openobserve-community-mcp:latest \
+  serve --transport streamable-http --address 0.0.0.0:8821
+```
+
+The client points at the endpoint and carries the token:
+
+```json
+{
+  "mcpServers": {
+    "openobserve": {
+      "type": "http",
+      "url": "http://127.0.0.1:8821/mcp",
+      "headers": { "Authorization": "Bearer your-token" }
+    }
+  }
+}
+```
+
+Two paths are served: `/mcp` behind the token and `/healthz` without it. The server
+refuses to start when the transport is `streamable-http` and `MCP_AUTH_TOKEN` or
+`--address` is missing, rather than serving an unguarded port.
 
 ## Configuration
 

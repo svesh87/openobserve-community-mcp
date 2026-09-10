@@ -1,17 +1,20 @@
 [project]
 name = "openobserve-community-mcp"
-version = "0.2.6"
-description = "OpenObserve community stdio MCP server"
+version = "0.3.0"
+description = "OpenObserve community MCP server over stdio or streamable HTTP"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.12,<2",
+    # mcp already pulls uvicorn in, but the streamable HTTP transport of this fork depends
+    # on it directly, and a transitive dependency is not a promise.
+    "uvicorn>=0.30",
 ]
 
 [project.urls]
-Homepage = "https://github.com/alilxxey/openobserve-community-mcp"
-Repository = "https://github.com/alilxxey/openobserve-community-mcp"
-Issues = "https://github.com/alilxxey/openobserve-community-mcp/issues"
+Homepage = "https://github.com/svesh87/openobserve-community-mcp"
+Repository = "https://github.com/svesh87/openobserve-community-mcp"
+Upstream = "https://github.com/alilxxey/openobserve-community-mcp"
 
 [build-system]
 requires = ["setuptools>=68"]

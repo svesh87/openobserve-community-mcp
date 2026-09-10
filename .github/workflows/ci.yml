@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # The server holds credentials to an observability platform and is reached over a port,
+  # so the transport and the client are the parts that must not rot unnoticed. The
+  # threshold is checked by the job rather than left to a reviewer's eye.
+  COVERAGE_THRESHOLD: "80"
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -32,10 +38,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - name: Install package
-        run: uv pip install --system -e .
+        run: uv pip install --system -e . coverage
 
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Run unit tests with coverage
+        run: |
+          coverage run --source=openobserve_mcp -m unittest discover -s tests -p 'test_*.py'
+          coverage report --fail-under="${COVERAGE_THRESHOLD}"
 
   build:
     runs-on: ubuntu-latest

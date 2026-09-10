@@ -7,14 +7,28 @@ from pathlib import Path
 from typing import Sequence
 
 from .config import DEFAULT_CONFIG_TEMPLATE, default_config_path
+from .errors import OpenObserveMcpError
+from .server import create_server
 from .server import main as serve_main
+from .transport import STDIO, STREAMABLE_HTTP, TRANSPORTS, TransportConfig, serve_http
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="openobserve-mcp", description="OpenObserve Community stdio MCP server")
+    parser = argparse.ArgumentParser(prog="openobserve-mcp", description="OpenObserve Community MCP server")
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("serve", help="Run the stdio MCP server")
+    serve_parser = subparsers.add_parser("serve", help="Run the MCP server")
+    serve_parser.add_argument(
+        "--transport",
+        default=STDIO,
+        choices=TRANSPORTS,
+        help=f"transport to serve on (default: {STDIO})",
+    )
+    serve_parser.add_argument(
+        "--address",
+        help=f"host:port to listen on with --transport={STREAMABLE_HTTP}, for example 0.0.0.0:8821",
+    )
+
     subparsers.add_parser("config-path", help="Print the default user config path")
 
     init_parser = subparsers.add_parser("init-config", help="Create a sample user config file")
@@ -29,7 +43,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command in {None, "serve"}:
-        return serve_main()
+        # A bare invocation has no serve flags at all, and it has to keep meaning stdio:
+        # that is how every client started by an agent runs this package.
+        transport = getattr(args, "transport", STDIO)
+        if transport == STDIO:
+            return serve_main()
+
+        try:
+            config = TransportConfig.load(transport=transport, address=getattr(args, "address", None))
+            return serve_http(create_server(), config)
+        except OpenObserveMcpError as exc:
+            # Same shape as server.main: a misconfiguration is a message, not a traceback.
+            raise SystemExit(str(exc)) from exc
     if args.command == "config-path":
         print(default_config_path())
         return 0
