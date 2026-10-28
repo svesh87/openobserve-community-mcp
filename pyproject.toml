@@ -1,6 +1,6 @@
 [project]
 name = "openobserve-community-mcp"
-version = "0.3.0"
+version = "0.3.1"
 description = "OpenObserve community MCP server over stdio or streamable HTTP"
 readme = "README.md"
 requires-python = ">=3.11"

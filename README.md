@@ -188,6 +188,12 @@ Two paths are served: `/mcp` behind the token and `/healthz` without it. The ser
 refuses to start when the transport is `streamable-http` and `MCP_AUTH_TOKEN` or
 `--address` is missing, rather than serving an unguarded port.
 
+Behind a gateway that calls the server by a container name, add that name to
+`MCP_ALLOWED_HOSTS` (comma separated, exact or `name:*` for any port), for example
+`MCP_ALLOWED_HOSTS=openobserve.mcp,openobserve.mcp:*`. Without it the MCP SDK's
+DNS-rebinding check accepts only localhost and answers anything else with
+`421 Invalid Host header`; unset, nothing changes.
+
 ## Configuration
 
 Default config path:

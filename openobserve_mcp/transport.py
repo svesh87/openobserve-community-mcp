@@ -26,6 +26,12 @@ TRANSPORTS = (STDIO, STREAMABLE_HTTP)
 #: a flag is visible in the process list to every user of the host.
 AUTH_TOKEN_ENV = "MCP_AUTH_TOKEN"
 
+#: Extra values of the Host header the HTTP transport accepts, comma separated (exact,
+#: or ``name:*`` for any port). FastMCP's DNS-rebinding check lets only localhost in, which
+#: is right for a port on the host and wrong behind a gateway that calls this server by its
+#: container name. Unset, nothing changes.
+ALLOWED_HOSTS_ENV = "MCP_ALLOWED_HOSTS"
+
 #: The MCP endpoint is FastMCP's default path; the health check sits beside it and needs
 #: no token, so a container healthcheck can use it without holding a secret.
 MCP_PATH = "/mcp"
@@ -48,6 +54,7 @@ class TransportConfig:
     host: str = ""
     port: int = 0
     auth_token: str = ""
+    allowed_hosts: tuple[str, ...] = ()
 
     @classmethod
     def load(
@@ -84,7 +91,17 @@ class TransportConfig:
                 "the server refuses to serve an unguarded port."
             )
 
-        return cls(transport=STREAMABLE_HTTP, host=host, port=port, auth_token=token)
+        allowed_hosts = tuple(
+            name.strip() for name in env.get(ALLOWED_HOSTS_ENV, "").split(",") if name.strip()
+        )
+
+        return cls(
+            transport=STREAMABLE_HTTP,
+            host=host,
+            port=port,
+            auth_token=token,
+            allowed_hosts=allowed_hosts,
+        )
 
 
 def _split_address(address: str) -> tuple[str, int]:
@@ -182,8 +199,18 @@ async def _plain_text(
     await send({"type": "http.response.body", "body": payload})
 
 
-def build_app(server: Any, token: str) -> BearerGate:
-    """Wrap a FastMCP server's streamable HTTP app in the bearer gate."""
+def build_app(server: Any, token: str, allowed_hosts: tuple[str, ...] = ()) -> BearerGate:
+    """Wrap a FastMCP server's streamable HTTP app in the bearer gate.
+
+    ``allowed_hosts`` are added to FastMCP's own list before the app is built; the check
+    itself stays on.
+    """
+    if allowed_hosts:
+        settings = getattr(server, "settings", None)
+        security = getattr(settings, "transport_security", None)
+        if security is not None and security.enable_dns_rebinding_protection:
+            security.allowed_hosts = [*security.allowed_hosts, *allowed_hosts]
+
     return BearerGate(server.streamable_http_app(), token)
 
 
@@ -196,6 +223,10 @@ def serve_http(server: Any, config: TransportConfig) -> int:
             "The 'uvicorn' package is required for the streamable-http transport."
         ) from exc
 
-    uvicorn.run(build_app(server, config.auth_token), host=config.host, port=config.port)
+    uvicorn.run(
+        build_app(server, config.auth_token, config.allowed_hosts),
+        host=config.host,
+        port=config.port,
+    )
 
     return 0

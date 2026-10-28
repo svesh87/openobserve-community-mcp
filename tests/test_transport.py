@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import unittest
 
+from mcp.server.fastmcp import FastMCP
 from starlette.testclient import TestClient
 
 from openobserve_mcp.transport import (
+    ALLOWED_HOSTS_ENV,
     AUTH_TOKEN_ENV,
     HEALTH_PATH,
     MCP_PATH,
@@ -191,6 +193,51 @@ class BearerGateTests(unittest.TestCase):
         with TestClient(gate) as client:
             self.assertEqual(client.get(HEALTH_PATH).status_code, 200)
             self.assertEqual(client.post(MCP_PATH).status_code, 401)
+
+
+class AllowedHostsTests(unittest.TestCase):
+    """Behind a gateway the Host header is a container name, which FastMCP refuses."""
+
+    def test_unset_changes_nothing(self) -> None:
+        config = TransportConfig.load(
+            transport=STREAMABLE_HTTP, address="0.0.0.0:8821", env={AUTH_TOKEN_ENV: TOKEN}
+        )
+        self.assertEqual(config.allowed_hosts, ())
+
+        server = FastMCP("test")
+        before = list(server.settings.transport_security.allowed_hosts)
+        build_app(server, TOKEN, config.allowed_hosts)
+        self.assertEqual(server.settings.transport_security.allowed_hosts, before)
+
+    def test_the_variable_is_a_comma_separated_list(self) -> None:
+        config = TransportConfig.load(
+            transport=STREAMABLE_HTTP,
+            address="0.0.0.0:8821",
+            env={AUTH_TOKEN_ENV: TOKEN, ALLOWED_HOSTS_ENV: " openobserve.mcp , openobserve.mcp:*,, "},
+        )
+        self.assertEqual(config.allowed_hosts, ("openobserve.mcp", "openobserve.mcp:*"))
+
+    def test_an_allowed_host_gets_past_the_check(self) -> None:
+        def status(host: str, allowed: tuple[str, ...]) -> int:
+            gate = build_app(FastMCP("test"), TOKEN, allowed)
+            with TestClient(gate) as client:
+                return client.post(
+                    MCP_PATH,
+                    headers={
+                        "Host": host,
+                        "Authorization": f"Bearer {TOKEN}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json, text/event-stream",
+                    },
+                    json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                ).status_code
+
+        # FastMCP answers 421 for a Host it does not know, as before this change.
+        self.assertEqual(status("openobserve.mcp:8821", ()), 421)
+        self.assertNotEqual(status("openobserve.mcp:8821", ("openobserve.mcp:*",)), 421)
+        self.assertNotEqual(status("openobserve.mcp", ("openobserve.mcp",)), 421)
+        # The check stays on for everything else.
+        self.assertEqual(status("evil.example", ("openobserve.mcp:*",)), 421)
 
 
 if __name__ == "__main__":
